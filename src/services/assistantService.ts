@@ -18,10 +18,83 @@ export interface AssistantContextData {
   isOnline?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Featherless AI — OpenAI-compatible client (browser-side via VITE env var)
+// ---------------------------------------------------------------------------
+const FEATHERLESS_API_KEY = import.meta.env.VITE_FEATHERLESS_API_KEY as string | undefined;
+const FEATHERLESS_BASE_URL = 'https://api.featherless.ai/v1';
+const FEATHERLESS_MODEL = 'meta-llama/Llama-3.3-70B-Instruct'; // change as needed
+
+async function callFeatherless(
+  systemPrompt: string,
+  userMessage: string
+): Promise<string> {
+  if (!FEATHERLESS_API_KEY) {
+    throw new Error('VITE_FEATHERLESS_API_KEY is not set');
+  }
+
+  const response = await fetch(`${FEATHERLESS_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${FEATHERLESS_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: FEATHERLESS_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      max_tokens: 300,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Featherless API error ${response.status}: ${err}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content?.trim() ?? '';
+}
+
+function buildSystemPrompt(context: AssistantContextData): string {
+  const upcomingMeds = context.medicines
+    .filter((m) => m.status === 'upcoming')
+    .map((m) => `${m.name} (${m.dosage ?? ''}) at ${m.reminderTime}`)
+    .join(', ') || 'None';
+
+  const upcomingApts = context.appointments
+    .filter((a) => a.status === 'upcoming')
+    .map((a) => `Dr. ${a.doctorName} on ${a.date} at ${a.time}`)
+    .join(', ') || 'None';
+
+  const lastWellbeing = context.wellbeingLogs[0]?.feeling ?? 'not recorded';
+  const lang = context.language === 'hi' ? 'Hindi/Hinglish' : 'English';
+
+  return `You are Saanjh, a warm and caring AI assistant for elderly patients. 
+You are speaking to ${context.seniorName}, a senior citizen. 
+Always be gentle, concise (max 2 sentences), and reply in ${lang}.
+
+Current context:
+- Upcoming medicines: ${upcomingMeds}
+- Upcoming appointments: ${upcomingApts}
+- Last wellbeing check-in: ${lastWellbeing}
+- Privacy: sharing with family is ${
+    Object.values(context.consentSettings).some(Boolean) ? 'partially enabled' : 'fully private'
+  }
+
+Never give medical diagnoses. If there's an emergency, always suggest calling family or emergency services.`;
+}
+
+// ---------------------------------------------------------------------------
+// Main AssistantService
+// ---------------------------------------------------------------------------
 export class AssistantService {
   /**
    * Processes queries in English, Hindi, and natural Hinglish.
-   * Reads live application state (medicines, appointments, wellbeing check-ins, privacy consent).
+   * Fast rule-based path for known intents; Featherless LLM fallback for everything else.
    */
   public static async processQuery(
     userText: string,
@@ -66,32 +139,15 @@ export class AssistantService {
       };
     }
 
-    // 1. Next Medicine & Routine Timing intent (English, Hindi, Hinglish)
+    // 1. Next Medicine & Routine Timing intent
     if (
       this.matchesAny(rawLower, [
-        'next medicine',
-        'next pill',
-        'when is my medicine',
-        'upcoming medicine',
-        'agli medicine',
-        'agli dava',
-        'agli dawai',
-        'dawa kab',
-        'dawai kab',
-        'medicine kab hai',
-        'tablet kab',
-        'mera next medicine',
-        'medicine ka time',
-        'dawa ka time',
-        'next tablet kaunsi hai',
-        'metformin',
-        'amlodipine',
-        'atorvastatin',
-        'calcium',
-        'kaunsi dawa bachi hai',
-        'dawaai kab khani hai',
-        'tablet time',
-        'dawai schedule',
+        'next medicine', 'next pill', 'when is my medicine', 'upcoming medicine',
+        'agli medicine', 'agli dava', 'agli dawai', 'dawa kab', 'dawai kab',
+        'medicine kab hai', 'tablet kab', 'mera next medicine', 'medicine ka time',
+        'dawa ka time', 'next tablet kaunsi hai', 'metformin', 'amlodipine',
+        'atorvastatin', 'calcium', 'kaunsi dawa bachi hai', 'dawaai kab khani hai',
+        'tablet time', 'dawai schedule',
       ])
     ) {
       const upcomingMeds = context.medicines.filter((m) => m.status === 'upcoming');
@@ -100,7 +156,7 @@ export class AssistantService {
           id: `ast_${Date.now()}`,
           sender: 'assistant',
           text: isHinglishOrHindi
-            ? 'बहुत बढ़िया! आज की सभी निर्धारित दवाएं आप ले चुकी हैं। आज के लिए कोई भी दवाई बाकी नहीं है।'
+            ? 'बहुत बढ़िया! आज की सभी निर्धारित दवाएं आप ले चुकी हैं। आज के लिए कोई भी दवाई बाकी नहीं है।'
             : 'Good news! All scheduled medicines for today have already been confirmed taken. You have no pending medicines today.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionSuggested: {
@@ -129,22 +185,13 @@ export class AssistantService {
       };
     }
 
-    // 2. Today's Schedule & Routine intent (English, Hindi, Hinglish)
+    // 2. Today's Schedule & Routine intent
     if (
       this.matchesAny(rawLower, [
-        'today schedule',
-        'today routine',
-        'what is my schedule',
-        'my day',
-        'aaj ka schedule',
-        'aaj kya karna hai',
-        'aaj ka din',
-        'routine kya hai',
-        'aaj ka routine',
-        'schedule check karo',
-        'mera routine batao',
-        'din kaisa hai',
-        'aaj kya bacha hai',
+        'today schedule', 'today routine', 'what is my schedule', 'my day',
+        'aaj ka schedule', 'aaj kya karna hai', 'aaj ka din', 'routine kya hai',
+        'aaj ka routine', 'schedule check karo', 'mera routine batao',
+        'din kaisa hai', 'aaj kya bacha hai',
       ])
     ) {
       const totalMeds = context.medicines.length;
@@ -181,22 +228,12 @@ export class AssistantService {
       };
     }
 
-    // 3. Doctor / Clinic Appointments intent (English, Hindi, Hinglish)
+    // 3. Doctor / Clinic Appointments intent
     if (
       this.matchesAny(rawLower, [
-        'appointment',
-        'doctor',
-        'clinic',
-        'hospital',
-        'kulkarni',
-        'mehra',
-        'doctor se kab milna',
-        'mulaqat',
-        'clinic kab jana',
-        'doc appointment kab hai',
-        'doctor appointment',
-        'hospital kab jana hai',
-        'checkup kab hai',
+        'appointment', 'doctor', 'clinic', 'hospital', 'kulkarni', 'mehra',
+        'doctor se kab milna', 'mulaqat', 'clinic kab jana', 'doc appointment kab hai',
+        'doctor appointment', 'hospital kab jana hai', 'checkup kab hai',
       ])
     ) {
       const upcoming = context.appointments.filter((a) => a.status === 'upcoming');
@@ -234,52 +271,21 @@ export class AssistantService {
       };
     }
 
-    // 4. Wellbeing / Feeling unwell / Hinglish symptom expressions
+    // 4. Wellbeing intent
     if (
       this.matchesAny(rawLower, [
-        'tabiyat',
-        'theek nahi',
-        'bimar',
-        'dard',
-        'thakan',
-        'feeling unwell',
-        'feeling sick',
-        'not feeling well',
-        'tired',
-        'dizzy',
-        'pain',
-        'wellbeing',
-        'how are you',
-        'kaisa lag raha',
-        'mood',
-        'feeling good',
-        'feeling great',
-        'badhiya',
-        'aaj tabiyat thodi off hai',
-        'sir dard',
-        'thoda tired feel ho raha hai',
-        'chakkar aa rahe',
-        'kamzori lag rahi hai',
-        'ghutne me dard',
-        'thoda low feel',
-        'thik lag raha',
-        'fresh feel',
+        'tabiyat', 'theek nahi', 'bimar', 'dard', 'thakan',
+        'feeling unwell', 'feeling sick', 'not feeling well', 'tired', 'dizzy',
+        'pain', 'wellbeing', 'how are you', 'kaisa lag raha', 'mood',
+        'feeling good', 'feeling great', 'badhiya', 'aaj tabiyat thodi off hai',
+        'sir dard', 'thoda tired feel ho raha hai', 'chakkar aa rahe',
+        'kamzori lag rahi hai', 'ghutne me dard', 'thoda low feel',
+        'thik lag raha', 'fresh feel',
       ])
     ) {
       const isUnwell = this.matchesAny(rawLower, [
-        'not feeling well',
-        'sick',
-        'tired',
-        'pain',
-        'dizzy',
-        'theek nahi',
-        'bimar',
-        'dard',
-        'thakan',
-        'kamzori',
-        'off hai',
-        'chakkar',
-        'low feel',
+        'not feeling well', 'sick', 'tired', 'pain', 'dizzy', 'theek nahi',
+        'bimar', 'dard', 'thakan', 'kamzori', 'off hai', 'chakkar', 'low feel',
       ]);
 
       if (isUnwell) {
@@ -288,7 +294,7 @@ export class AssistantService {
           sender: 'assistant',
           text: isHinglishOrHindi
             ? 'मुझे सुनकर चिंता हुई मीरा जी। कृपया थोड़ा आराम करें और पानी पिएं। क्या आप आज का स्वास्थ्य हाल-चाल दर्ज करना चाहती हैं या अपनी बेटी अनन्या को सूचित करना चाहती हैं?'
-            : 'I’m sorry you are not feeling your best. Please rest comfortably and sip some water. Would you like to record your wellbeing check-in or reach out to your family contact?',
+            : 'I'm sorry you are not feeling your best. Please rest comfortably and sip some water. Would you like to record your wellbeing check-in or reach out to your family contact?',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionSuggested: {
             type: 'checkin',
@@ -313,25 +319,14 @@ export class AssistantService {
       };
     }
 
-    // 5. Privacy & Consent inquiries (Hinglish, Hindi, English)
+    // 5. Privacy & Consent inquiries
     if (
       this.matchesAny(rawLower, [
-        'privacy',
-        'consent',
-        'who can see',
-        'family see',
-        'daughter see',
-        'ananya see',
-        'share',
-        'kaun dekh sakta',
-        'kya share ho raha',
-        'meri jankari',
-        'nijta',
-        'privacy settings open karo',
-        'ananya ko kya dikh raha hai',
-        'mera data kaun dekh sakta hai',
-        'permission change karni hai',
-        'sharing settings',
+        'privacy', 'consent', 'who can see', 'family see', 'daughter see',
+        'ananya see', 'share', 'kaun dekh sakta', 'kya share ho raha',
+        'meri jankari', 'nijta', 'privacy settings open karo',
+        'ananya ko kya dikh raha hai', 'mera data kaun dekh sakta hai',
+        'permission change karni hai', 'sharing settings',
       ])
     ) {
       const c = context.consentSettings;
@@ -344,13 +339,13 @@ export class AssistantService {
       let text = '';
       if (sharedItems.length === 0) {
         text = isHinglishOrHindi
-          ? `आपकी पूर्ण निजता सुरक्षित है। अभी आपकी बेटी अनन्या शर्मा के साथ कुछ भी साझा नहीं किया जा रहा है (100% Private)। आप जब चाहें प्राइवेसी सेंटर में जाकर अनुमतियाँ बदल सकती हैं।`
+          ? `आपकी पूर्ण निजता सुरक्षित है। अभी आपकी बेटी अनन्या शर्मा के साथ कुछ भी साझा नहीं किया जा रहा है (100% Private)।`
           : `Your privacy is fully protected. Currently, no categories are shared with your daughter Ananya Sharma. Everything remains strictly private unless you choose to share.`;
       } else {
         const listStr = sharedItems.join(', ');
         text = isHinglishOrHindi
           ? `आपकी अनुमति के आधार पर, अनन्या शर्मा केवल यह देख सकती हैं: ${listStr}। आपकी निजी टिप्पणियां और वॉयस बातचीत कभी भी साझा नहीं की जाती हैं।`
-          : `Under your current consent settings, Ananya Sharma can only see: ${listStr}. Private notes and voice conversations are never shared. You can revoke access anytime.`;
+          : `Under your current consent settings, Ananya Sharma can only see: ${listStr}. Private notes and voice conversations are never shared.`;
       }
 
       return {
@@ -369,14 +364,8 @@ export class AssistantService {
     // 6. Routine Change Insights query
     if (
       this.matchesAny(rawLower, [
-        'routine insight',
-        'insights',
-        'kaisa chal raha hai',
-        'routine check karo',
-        'insights dikhao',
-        'trends',
-        'pichle din kaise rahe',
-        'pattern kya hai',
+        'routine insight', 'insights', 'kaisa chal raha hai', 'routine check karo',
+        'insights dikhao', 'trends', 'pichle din kaise rahe', 'pattern kya hai',
       ])
     ) {
       const analysis = RoutineInsightsService.analyzeRoutine({
@@ -421,18 +410,14 @@ export class AssistantService {
     // 7. Offline-First Experience query
     if (
       this.matchesAny(rawLower, [
-        'offline',
-        'internet nahi hai',
-        'offline kaam karega',
-        'kya ye offline chalega',
-        'is this offline',
-        'data kahan save hota hai',
-        'sync',
+        'offline', 'internet nahi hai', 'offline kaam karega',
+        'kya ye offline chalega', 'is this offline',
+        'data kahan save hota hai', 'sync',
       ])
     ) {
       const text = isHinglishOrHindi
-        ? `सांझ पूरी तरह ऑफलाइन-फर्स्ट (Offline-First) बनाया गया है। आपकी सभी दवाएं, रिमाइंडर और स्वास्थ्य रिकॉर्ड आपके डिवाइस की मेमोरी में सुरक्षित रहते हैं। इंटरनेट न होने पर भी आप सब कुछ इस्तेमाल कर सकती हैं!`
-        : `Saanjh is built offline-first! All your medicines, reminders, and wellbeing records are stored locally on your device. Everything remains completely accessible even without internet connectivity.`;
+        ? `सांझ पूरी तरह ऑफलाइन-फर्स्ट (Offline-First) बनाया गया है। आपकी सभी दवाएं, रिमाइंडर और स्वास्थ्य रिकॉर्ड आपके डिवाइस की मेमोरी में सुरक्षित रहते हैं।`
+        : `Saanjh is built offline-first! All your medicines, reminders, and wellbeing records are stored locally on your device and remain accessible even without internet.`;
 
       return {
         id: `ast_${Date.now()}`,
@@ -447,13 +432,34 @@ export class AssistantService {
       };
     }
 
-    // Default polite response
+    // ---------------------------------------------------------------------------
+    // 8. Featherless AI LLM Fallback — for anything not matched above
+    // ---------------------------------------------------------------------------
+    if (FEATHERLESS_API_KEY && context.isOnline !== false) {
+      try {
+        const systemPrompt = buildSystemPrompt(context);
+        const llmReply = await callFeatherless(systemPrompt, userText);
+
+        if (llmReply) {
+          return {
+            id: `ast_${Date.now()}`,
+            sender: 'assistant',
+            text: llmReply,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          };
+        }
+      } catch (err) {
+        console.warn('[AssistantService] Featherless API call failed, using default reply:', err);
+      }
+    }
+
+    // Final default polite response
     return {
       id: `ast_${Date.now()}`,
       sender: 'assistant',
       text: isHinglishOrHindi
         ? `नमस्ते मीरा जी! मैं आपकी सांझ सहायक हूँ। आप मुझसे हिंदी, इंग्लिश या हिंग्लिश में पूछ सकती हैं: "मेरी अगली दवा कब है?", "आज का शेड्यूल क्या है?", "डॉक्टर से कब मिलना है?", या "मुझे मदद चाहिए"।`
-        : `Hello Meera ji! I’m your Saanjh care assistant. You can ask in English, Hindi, or Hinglish: "When is my next medicine?", "What's my schedule today?", "When is my doctor appointment?", or "I need help".`,
+        : `Hello Meera ji! I'm your Saanjh care assistant. You can ask in English, Hindi, or Hinglish: "When is my next medicine?", "What's my schedule today?", "When is my doctor appointment?", or "I need help".`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       actionSuggested: {
         type: 'navigate',
@@ -468,40 +474,14 @@ export class AssistantService {
   }
 
   private static detectHindiOrHinglish(text: string): boolean {
-    // Unicode range for Devanagari is \u0900-\u097F
     const hasDevanagari = /[\u0900-\u097F]/.test(text);
     if (hasDevanagari) return true;
 
     const hinglishWords = [
-      'meri',
-      'mera',
-      'aaj',
-      'tabiyat',
-      'theek',
-      'thik',
-      'nahi',
-      'hai',
-      'kya',
-      'kaisa',
-      'kaise',
-      'dawa',
-      'dawai',
-      'namaste',
-      'kaun',
-      'dekhega',
-      'karo',
-      'karna',
-      'chahiye',
-      'madad',
-      'bachao',
-      'ananya',
-      'kulkarni',
-      'chakkar',
-      'dard',
-      'thakan',
-      'bachi',
-      'batao',
-      'off',
+      'meri', 'mera', 'aaj', 'tabiyat', 'theek', 'thik', 'nahi', 'hai',
+      'kya', 'kaisa', 'kaise', 'dawa', 'dawai', 'namaste', 'kaun',
+      'dekhega', 'karo', 'karna', 'chahiye', 'madad', 'bachao', 'ananya',
+      'kulkarni', 'chakkar', 'dard', 'thakan', 'bachi', 'batao', 'off',
     ];
     return hinglishWords.some((w) => text.split(/\s+/).includes(w));
   }
