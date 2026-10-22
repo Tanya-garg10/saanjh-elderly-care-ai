@@ -2,13 +2,10 @@
 
 > **"Care that stays close, even when family can't."**
 
-[![Demo Mode](https://img.shields.io/badge/Status-Demo--Ready%20MVP-success)](#)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue)](#)
 [![React](https://img.shields.io/badge/Framework-React%2019-61dafb)](#)
 [![Tailwind CSS](https://img.shields.io/badge/Styling-Tailwind%20CSS%20v4-38b2ac)](#)
 [![Privacy](https://img.shields.io/badge/Core%20Differentiator-Consent%20Before%20Care-65866E)](#)
-
----
 
 ## 1. Problem Statement
 
@@ -17,8 +14,6 @@ Millions of senior citizens live independently in cities across India and global
 - **Overcomplicated interfaces:** Small text, confusing hierarchical menus, and cluttered dashboards alienate elderly users.
 - **Language barriers:** Most healthcare software lacks natural conversational interaction in regional languages like Hindi.
 - **Privacy friction vs. constant surveillance:** Current "family monitoring" apps treat seniors as surveillance subjects rather than autonomous individuals, generating resentment and breach of trust.
-
----
 
 ## 2. The Saanjh Solution
 
@@ -31,8 +26,6 @@ Rather than constant surveillance, Saanjh puts the senior in complete command:
 3. **Consent-Gated Family Coordination:** Seniors decide exactly which categories of information are shared with family (Medicine status, Wellbeing summaries, Appointments, Timeline). If permission is withheld, family dashboards respect that choice unconditionally.
 4. **Accessible Healthcare UX:** Warm sage green and cream palette, high contrast mode, dynamic font scaling (Standard, Large, Extra Large), and calming audio feedback.
 
----
-
 ## 3. Core Differentiator: Consent Before Care
 
 In typical tracking apps, all data is shared by default. In Saanjh:
@@ -42,8 +35,6 @@ In typical tracking apps, all data is shared by default. In Saanjh:
 - **Granular Control:** Medicine status, wellbeing summaries, appointments, and activity logs have independent toggles.
 - **Private Audio:** Voice assistant conversation transcripts and audio recordings are **never shared** with family members.
 - **Audit Logging:** Every grant or revocation is recorded transparently in the senior's Privacy Center audit log.
-
----
 
 ## 4. Key Working Features (Current MVP)
 
@@ -62,21 +53,7 @@ In typical tracking apps, all data is shared by default. In Saanjh:
 | **Family Care Dashboard** | ✅ Working | Strictly consent-gated overview showing shared adherence percentage, wellbeing status, routine insights (if consented), and authorized activity timeline. |
 | **Privacy & Consent Center** | ✅ Working | Prominent "Your privacy. Your choice." interface with granular toggles, instant access revocation, and consent change audit trail. |
 
----
-
-## 5. Feature Implementation Classification
-
-To maintain complete transparency for hackathon judging and technical audit:
-
-| Category | Features | Notes |
-|---|---|---|
-| **Fully Functional** | • Medicine CRUD & Adherence Logging<br>• Doctor Appointments Management<br>• Daily Wellbeing Check-in Logs<br>• Local Data Persistence (`localStorage`)<br>• Offline Detection & Seamless Offline Access<br>• Rule-based Routine Change Insights Engine<br>• Granular Consent State & Instant Family Dashboard Gating<br>• Accessibility Mode (high contrast, ≥52px targets, enlarged text, reduced motion)<br>• Web Speech Recognition & Speech Synthesis (in supported browsers) with Text Fallback | Runs 100% in-browser with zero external server dependencies. State changes, consent revocations, and data edits persist across reloads. |
-| **Demo-Only Simulations** | • **One-Tap Help Alert Dispatch:** Simulates sending alert to emergency contact (Ananya Sharma) and tracks status (`active` → `resolved`), but does not invoke carrier telecommunications.<br>• **Phone Call Button:** Simulates connection to family contact via modal dialog with honest `(Demo Call)` label. | Strictly follows ethical AI guidelines: never deceives the user into believing an actual emergency service (112/911) or real cellular carrier SMS was dispatched. |
-| **Future External Integrations** | • Multi-device cloud sync via **Firebase Firestore & Auth**<br>• Carrier SMS & WhatsApp alerts via **Twilio / WhatsApp Business API**<br>• LLM multi-turn conversation via **Google Gemini API** (server-side proxy via `@google/genai`) | Clean interface abstractions are in place (`storage.ts`, `assistantService.ts`, `voiceService.ts`) ready to connect to external endpoints without architectural refactoring. |
-
----
-
-## 6. Technology Stack
+## 5. Technology Stack
 
 | Layer | Technology |
 |---|---|
@@ -89,9 +66,7 @@ To maintain complete transparency for hackathon judging and technical audit:
 | **Backend Proxy** | Express.js + dotenv (for API key protection) |
 | **Data Persistence** | Client-side `localStorage` engine with default initialization and schema validation |
 
----
-
-## 7. Project Structure
+## 6. Project Structure
 
 ```
 saanjh/
@@ -139,9 +114,7 @@ saanjh/
 │       └── Settings.tsx        # Accessibility, language & data reset
 ```
 
----
-
-## 8. How to Run Locally
+## 7. How to Run Locally
 
 ### Prerequisites
 
@@ -176,17 +149,7 @@ npm run build
 npm run preview
 ```
 
----
-
-## 9. Demo Limitations & Ethical Safeguards
-
-1. **Healthcare Disclaimer:** Saanjh is an assistive routine coordinator, **not** a diagnostic medical device or emergency service. All sample profiles (*Meera Sharma* and *Ananya Sharma*) are entirely fictional.
-2. **Demo Storage vs. Production RBAC:** In this demo MVP, consent rules govern frontend rendering directly using persistent client state. In a multi-tenant production environment, role-based access control (RBAC) is enforced cryptographically at the database layer (Firestore Rules).
-3. **Simulated Communications:** Phone call actions and notification pushes in this demo are simulated and clearly labelled as `(Demo Only)`.
-
----
-
-## 10. Future Roadmap
+## 8. Future Roadmap
 
 - [ ] **Secure Firebase Authentication & Cloud Firestore:** Encrypted user accounts and multi-user family linkage.
 - [ ] **Server-Side Gemini API Integration:** Multi-turn conversational reasoning, medication interaction safety checks, and automatic speech transcription.
@@ -194,11 +157,7 @@ npm run preview
 - [ ] **WebRTC Voice Bridge:** Direct 1-tap private voice calls between senior and family coordinator.
 - [ ] **Smart Wearables Integration:** Sync with blood pressure monitors and step trackers with senior authorization.
 
----
-
-## 11. Hackathon Credits
-
-Built with ❤️ for dignity, autonomy, and family peace of mind.
+## Built with ❤️ for dignity, autonomy, and family peace of mind.
 
 > *"Saanjh" (सांझ) means twilight in Hindi — the quiet, golden hour when family gathers. We built this for every elder waiting for that call.*
 
