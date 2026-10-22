@@ -294,7 +294,7 @@ export class AssistantService {
           sender: 'assistant',
           text: isHinglishOrHindi
             ? 'मुझे सुनकर चिंता हुई मीरा जी। कृपया थोड़ा आराम करें और पानी पिएं। क्या आप आज का स्वास्थ्य हाल-चाल दर्ज करना चाहती हैं या अपनी बेटी अनन्या को सूचित करना चाहती हैं?'
-            : 'I'm sorry you are not feeling your best. Please rest comfortably and sip some water. Would you like to record your wellbeing check-in or reach out to your family contact?',
+            : `I'm sorry you are not feeling your best. Please rest comfortably and sip some water. Would you like to record your wellbeing check-in or reach out to your family contact?`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionSuggested: {
             type: 'checkin',
