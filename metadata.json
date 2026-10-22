@@ -1,0 +1,6 @@
+{
+  "name": "Saanjh — AI-Powered Elderly Care & Family Coordination",
+  "description": "Voice-first healthcare routines, medicine reminders, daily wellbeing check-ins, and consent-driven family care coordination for independent seniors.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
