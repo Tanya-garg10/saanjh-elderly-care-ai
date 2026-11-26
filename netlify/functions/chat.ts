@@ -1,7 +1,7 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_NAME = 'gemini-3.8-flash';
+const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash'];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -61,21 +61,39 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
 - Never give medical diagnoses, clinical opinions, or treatment changes; encourage consulting her doctor for medical questions.
 - Preserve Meera's dignity and independence at all times.`;
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Care Context JSON:\n${JSON.stringify(context ?? {})}\n\nUser Question: ${message.trim()}`,
-      config: {
-        systemInstruction,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      },
-    });
+    let replyText = '';
+    let usedModel = '';
+    let lastError: unknown = null;
 
-    const replyText = response.text?.trim();
+    for (const model of CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: `Care Context JSON:\n${JSON.stringify(context ?? {})}\n\nUser Question: ${message.trim()}`,
+          config: {
+            systemInstruction,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
+        });
+        const text = response.text?.trim();
+        if (text) {
+          replyText = text;
+          usedModel = model;
+          break;
+        }
+      } catch (err: unknown) {
+        lastError = err;
+        console.warn(`Model ${model} failed, trying fallback:`, err);
+        // Continue to next model if overloaded or unavailable
+      }
+    }
+
     if (!replyText) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
       return {
-        statusCode: 502,
+        statusCode: 503,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'Gemini returned an empty response.' }),
+        body: JSON.stringify({ error: errorMsg || 'All Gemini models temporarily unavailable.' }),
       };
     }
 
@@ -84,7 +102,7 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify({
         reply: replyText,
-        model: MODEL_NAME,
+        model: usedModel,
       }),
     };
   } catch (err: unknown) {
