@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+:root {
+  --bg-ivory: #FAF9F6;
+  --surface-white: #FFFFFF;
+  --primary-sage: #789887;
+  --deep-green: #365B4B;
+  --secondary-sage: #E9F0EB;
+  --accent-terracotta: #C98F78;
+  --text-primary: #26352F;
+  --text-secondary: #5C6762;
+  --border-hairline: #E8EAE5;
+}
+
+@layer base {
+  html {
+    font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-ivory);
+    color: var(--text-primary);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  .font-mono-tabular {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  *:focus-visible {
+    outline: 3px solid var(--deep-green);
+    outline-offset: 2px;
+  }
+}
+
+/* Accessibility Mode: Larger Text */
+html.a11y-large-text {
+  font-size: 18px;
+}
+
+/* Accessibility Mode: High Contrast */
+html.a11y-high-contrast {
+  --bg-ivory: #FFFFFF;
+  --surface-white: #FFFFFF;
+  --primary-sage: #244738;
+  --deep-green: #163025;
+  --secondary-sage: #DCE7E0;
+  --accent-terracotta: #9E4E34;
+  --text-primary: #0F1714;
+  --text-secondary: #2F3E38;
+  --border-hairline: #8C9993;
+}
+
+html.a11y-high-contrast *:focus-visible {
+  outline: 3px solid #0F1714;
+  outline-offset: 3px;
+}
+
+/* Accessibility Mode: Reduced Motion */
+html.a11y-reduced-motion *,
+html.a11y-reduced-motion *::before,
+html.a11y-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Accessibility Mode: Larger Touch Targets */
+html.a11y-large-targets button,
+html.a11y-large-targets a[role="button"],
+html.a11y-large-targets input[type="checkbox"],
+html.a11y-large-targets select {
+  min-height: 48px;
+}

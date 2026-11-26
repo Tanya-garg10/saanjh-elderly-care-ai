@@ -1,0 +1,10 @@
+{
+  "name": "Saanjh",
+  "description": "Voice-first AI elderly care and privacy-respecting family coordination.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
