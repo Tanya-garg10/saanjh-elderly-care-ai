@@ -1,8 +1,8 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-// Use gemini-2.5-flash as the primary production model
-const MODEL_NAME = 'gemini-2.5-flash';
+// Google requires gemini-3.8-flash for new users and API keys
+const MODEL_NAME = 'gemini-3.8-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;

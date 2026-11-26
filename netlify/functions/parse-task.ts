@@ -1,7 +1,7 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_NAME = 'gemini-2.5-flash';
+const MODEL_NAME = 'gemini-3.8-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -50,35 +50,61 @@ export const handler: Handler = async (event) => {
         ? todayDate
         : new Date().toISOString().slice(0, 10);
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Today's date is ${referenceDate}. Extract a structured daily reminder task from this spoken or typed note (which may be English, Hindi, or Hinglish): "${text.trim()}".`,
-      config: {
-        systemInstruction:
-          'Extract a concise task title, resolve relative dates like today/aaj or tomorrow/kal to YYYY-MM-DD, convert times to HH:mm (default 17:00), and classify category as hydration, activity, rest, or custom.',
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            date: { type: Type.STRING },
-            time: { type: Type.STRING },
-            category: { type: Type.STRING },
-            notes: { type: Type.STRING },
-          },
-          required: ['title', 'date', 'time', 'category', 'notes'],
-        },
-      },
-    });
-
-    const rawJson = (response.text ?? '{}').trim();
-    const parsedResult = JSON.parse(rawJson) as {
+    let parsedResult: {
       title?: string;
       date?: string;
       time?: string;
       category?: string;
       notes?: string;
-    };
+    } | null = null;
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: MODEL_NAME,
+          contents: `Today's date is ${referenceDate}. Extract a structured daily reminder task from this spoken or typed note (which may be English, Hindi, or Hinglish): "${text.trim()}".`,
+          config: {
+            systemInstruction:
+              'Extract a concise task title, resolve relative dates like today/aaj or tomorrow/kal to YYYY-MM-DD, convert times to HH:mm (default 17:00), and classify category as hydration, activity, rest, or custom.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                date: { type: Type.STRING },
+                time: { type: Type.STRING },
+                category: { type: Type.STRING },
+                notes: { type: Type.STRING },
+              },
+              required: ['title', 'date', 'time', 'category', 'notes'],
+            },
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
+        });
+
+        const rawJson = (response.text ?? '{}').trim();
+        parsedResult = JSON.parse(rawJson);
+        break;
+      } catch (err: unknown) {
+        lastError = err;
+        const errMsg = String(err);
+        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE')) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!parsedResult) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+      return {
+        statusCode: 503,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: errorMsg }),
+      };
+    }
 
     const validCategories = ['hydration', 'activity', 'rest', 'custom'];
     const category = validCategories.includes(parsedResult.category ?? '')

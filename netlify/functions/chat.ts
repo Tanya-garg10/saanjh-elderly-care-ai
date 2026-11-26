@@ -1,7 +1,7 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_NAME = 'gemini-2.5-flash';
+const MODEL_NAME = 'gemini-3.8-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -68,20 +68,43 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
       recentWellbeing: context?.recentWellbeing?.slice(0, 2),
     };
 
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Care Context JSON:\n${JSON.stringify(compactContext)}\n\nUser Question: ${message.trim()}`,
-      config: {
-        systemInstruction,
-      },
-    });
+    let replyText = '';
+    let lastError: unknown = null;
 
-    const replyText = response.text?.trim();
+    // Retry loop for temporary 503 capacity spikes
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: MODEL_NAME,
+          contents: `Care Context JSON:\n${JSON.stringify(compactContext)}\n\nUser Question: ${message.trim()}`,
+          config: {
+            systemInstruction,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          },
+        });
+        const text = response.text?.trim();
+        if (text) {
+          replyText = text;
+          break;
+        }
+      } catch (err: unknown) {
+        lastError = err;
+        const errMsg = String(err);
+        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE')) {
+          // Wait briefly before retrying
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          continue;
+        }
+        throw err;
+      }
+    }
+
     if (!replyText) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
       return {
-        statusCode: 502,
+        statusCode: 503,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'Gemini returned an empty response.' }),
+        body: JSON.stringify({ error: errorMsg }),
       };
     }
 
