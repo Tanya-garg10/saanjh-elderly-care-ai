@@ -1,7 +1,7 @@
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash'];
+const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -62,38 +62,39 @@ export const handler: Handler = async (event) => {
 
     for (const model of CANDIDATE_MODELS) {
       try {
-        const response = await ai.models.generateContent({
+        const responsePromise = ai.models.generateContent({
           model,
           contents: `Today's date is ${referenceDate}. Extract a structured daily reminder task from this spoken or typed note (which may be English, Hindi, or Hinglish): "${text.trim()}".`,
           config: {
             systemInstruction:
-              'Extract a concise task title in clean natural language, resolve relative dates like today/aaj or tomorrow/kal against the given reference date into YYYY-MM-DD, convert times like "4 PM" or "shaam 6 baje" into 24-hour HH:mm (default 17:00 if no time given), and classify category as hydration, activity, rest, or custom.',
+              'Extract a concise task title, resolve relative dates like today/aaj or tomorrow/kal to YYYY-MM-DD, convert times to HH:mm (default 17:00), and classify category as hydration, activity, rest, or custom.',
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
               properties: {
-                title: { type: Type.STRING, description: 'Clean concise task title.' },
-                date: { type: Type.STRING, description: 'Date in YYYY-MM-DD format.' },
-                time: { type: Type.STRING, description: '24-hour time in HH:mm format.' },
-                category: {
-                  type: Type.STRING,
-                  description: 'One of: hydration, activity, rest, custom',
-                },
-                notes: { type: Type.STRING, description: 'Short helpful note.' },
+                title: { type: Type.STRING },
+                date: { type: Type.STRING },
+                time: { type: Type.STRING },
+                category: { type: Type.STRING },
+                notes: { type: Type.STRING },
               },
               required: ['title', 'date', 'time', 'category', 'notes'],
             },
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           },
         });
 
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Model timeout')), 4500)
+        );
+
+        const response = await Promise.race([responsePromise, timeoutPromise]);
         const rawJson = (response.text ?? '{}').trim();
         parsedResult = JSON.parse(rawJson);
         usedModel = model;
         break;
       } catch (err: unknown) {
         lastError = err;
-        console.warn(`Model ${model} failed in parse-task, trying next:`, err);
+        console.warn(`Model ${model} failed in parse-task:`, err);
       }
     }
 
@@ -102,7 +103,7 @@ export const handler: Handler = async (event) => {
       return {
         statusCode: 503,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: errorMsg || 'All models temporarily unavailable.' }),
+        body: JSON.stringify({ error: errorMsg || 'Models timed out.' }),
       };
     }
 
