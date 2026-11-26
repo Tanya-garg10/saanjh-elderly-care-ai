@@ -1,7 +1,7 @@
-import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_NAME = 'gemini-3.8-flash';
+const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -57,12 +57,13 @@ export const handler: Handler = async (event) => {
       category?: string;
       notes?: string;
     } | null = null;
+    let usedModel = '';
     let lastError: unknown = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (const model of MODEL_CANDIDATES) {
       try {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: `Today's date is ${referenceDate}. Extract a structured daily reminder task from this spoken or typed note (which may be English, Hindi, or Hinglish): "${text.trim()}".`,
           config: {
             systemInstruction:
@@ -79,21 +80,16 @@ export const handler: Handler = async (event) => {
               },
               required: ['title', 'date', 'time', 'category', 'notes'],
             },
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           },
         });
 
         const rawJson = (response.text ?? '{}').trim();
         parsedResult = JSON.parse(rawJson);
+        usedModel = model;
         break;
       } catch (err: unknown) {
         lastError = err;
-        const errMsg = String(err);
-        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE')) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
-          continue;
-        }
-        throw err;
+        console.warn(`Model ${model} failed in parse-task, trying next:`, err);
       }
     }
 
@@ -127,7 +123,7 @@ export const handler: Handler = async (event) => {
           notes: parsedResult.notes || `Extracted from note: "${text.trim()}"`,
           detectedFrom: text.trim(),
         },
-        model: MODEL_NAME,
+        model: usedModel,
       }),
     };
   } catch (err: unknown) {

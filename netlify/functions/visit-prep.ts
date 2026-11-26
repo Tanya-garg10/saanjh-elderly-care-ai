@@ -1,7 +1,7 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_NAME = 'gemini-3.8-flash';
+const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -52,12 +52,13 @@ Rules:
 - Clearly frame everything as the user's own topics to discuss with their doctor.`;
 
     let summaryText = '';
+    let usedModel = '';
     let lastError: unknown = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (const model of MODEL_CANDIDATES) {
       try {
         const response = await ai.models.generateContent({
-          model: MODEL_NAME,
+          model,
           contents: JSON.stringify({
             appointment,
             userConcerns: Array.isArray(concerns) ? concerns : [],
@@ -66,22 +67,17 @@ Rules:
           }),
           config: {
             systemInstruction,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           },
         });
         const text = response.text?.trim();
         if (text) {
           summaryText = text;
+          usedModel = model;
           break;
         }
       } catch (err: unknown) {
         lastError = err;
-        const errMsg = String(err);
-        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE')) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
-          continue;
-        }
-        throw err;
+        console.warn(`Model ${model} failed in visit-prep:`, err);
       }
     }
 
@@ -97,7 +93,7 @@ Rules:
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ summary: summaryText, model: MODEL_NAME }),
+      body: JSON.stringify({ summary: summaryText, model: usedModel }),
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
