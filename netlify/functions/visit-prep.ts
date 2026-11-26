@@ -1,7 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+const MODEL_CANDIDATES = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;

@@ -1,8 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-// Ultra-fast lightweight model first (rarely hits high demand), then 3.8-flash
-const MODEL_CANDIDATES = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+// Multiple model candidates across different model clusters
+const MODEL_CANDIDATES = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+];
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -90,8 +94,7 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
         }
       } catch (err: unknown) {
         lastError = err;
-        console.warn(`Model ${model} failed, trying next candidate:`, err);
-        // Continue to fallback model immediately
+        console.warn(`Model ${model} unavailable, trying next:`, err);
       }
     }
 
