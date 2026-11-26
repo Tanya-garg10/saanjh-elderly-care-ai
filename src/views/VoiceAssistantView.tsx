@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Volume2, Send, Info, Check, X, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Volume2, Send, Info, Check, X, Sparkles, Loader2 } from 'lucide-react';
 import { useSaanjh } from '../context/SaanjhContext';
 import { AssistantLanguage, RoutineActivityCategory } from '../types/saanjh';
 import {
@@ -7,7 +7,7 @@ import {
   parseSmartTaskFromText,
   ProposedSmartTask,
 } from '../utils/assistantEngine';
-import { formatDisplayDate, formatTime12h } from '../data/seedData';
+import { formatDisplayDate, formatTime12h, getOffsetDateISO } from '../data/seedData';
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -58,7 +58,10 @@ export const VoiceAssistantView: React.FC = () => {
   );
   const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [voiceError, setVoiceError] = useState('');
+  const [apiNotice, setApiNotice] = useState('');
+  const [geminiReady, setGeminiReady] = useState<boolean | null>(null);
 
   // Proposed smart task confirmation state
   const [proposedTask, setProposedTask] = useState<ProposedSmartTask | null>(null);
@@ -78,10 +81,25 @@ export const VoiceAssistantView: React.FC = () => {
     typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   useEffect(() => {
+    let active = true;
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((data: { geminiConfigured?: boolean }) => {
+        if (active) setGeminiReady(Boolean(data.geminiConfigured));
+      })
+      .catch(() => {
+        if (active) setGeminiReady(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
       behavior: state.accessibility.reducedMotion ? 'auto' : 'smooth',
     });
-  }, [state.assistantMessages, state.accessibility.reducedMotion]);
+  }, [state.assistantMessages, isProcessing, state.accessibility.reducedMotion]);
 
   useEffect(() => {
     return () => {
@@ -122,31 +140,74 @@ export const VoiceAssistantView: React.FC = () => {
     );
   };
 
-  const handleSubmitText = (query: string, overrideLang?: AssistantLanguage) => {
-    const clean = query.trim();
-    if (!clean) return;
-    const activeLang = overrideLang ?? language;
-    setTaskSavedNotice('');
+  const handleExtractSmartTask = async (clean: string, activeLang: AssistantLanguage) => {
+    setIsProcessing(true);
+    setApiNotice('');
+    try {
+      const res = await fetch('/api/saanjh/parse-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: clean,
+          todayDate: getOffsetDateISO(0),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        task?: ProposedSmartTask;
+        error?: string;
+      };
 
-    if (mode === 'smart-task' || looksLikeReminderIntent(clean)) {
-      const proposal = parseSmartTaskFromText(clean);
-      if (proposal) {
-        setProposedTask(proposal);
-        setInputText('');
+      if (res.ok && data.task) {
+        setProposedTask(data.task);
         if (state.accessibility.voiceAutoRead) {
           speakText(
-            `I prepared a reminder for ${proposal.title} on ${formatDisplayDate(proposal.date)} at ${formatTime12h(proposal.time)}. Please confirm below before saving.`,
+            `I prepared a reminder for ${data.task.title} on ${formatDisplayDate(data.task.date)} at ${formatTime12h(data.task.time)}. Please confirm below before saving.`,
             activeLang
           );
         }
         return;
       }
+
+      if (data.error) {
+        setApiNotice(`${data.error} Using local task parser fallback.`);
+      }
+      const fallbackProposal = parseSmartTaskFromText(clean);
+      if (fallbackProposal) {
+        setProposedTask(fallbackProposal);
+      }
+    } catch {
+      setApiNotice('Server unreachable; extracted reminder using local parser fallback.');
+      const fallbackProposal = parseSmartTaskFromText(clean);
+      if (fallbackProposal) {
+        setProposedTask(fallbackProposal);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSubmitText = async (query: string, overrideLang?: AssistantLanguage) => {
+    const clean = query.trim();
+    if (!clean || isProcessing) return;
+    const activeLang = overrideLang ?? language;
+    setTaskSavedNotice('');
+    setApiNotice('');
+    setInputText('');
+
+    if (mode === 'smart-task' || looksLikeReminderIntent(clean)) {
+      await handleExtractSmartTask(clean, activeLang);
+      return;
     }
 
-    const reply = sendAssistantMessage(clean, activeLang);
-    setInputText('');
-    if (reply && state.accessibility.voiceAutoRead) {
-      speakText(reply, activeLang);
+    setIsProcessing(true);
+    const result = await sendAssistantMessage(clean, activeLang);
+    setIsProcessing(false);
+
+    if (result.notice) {
+      setApiNotice(result.notice);
+    }
+    if (result.text && state.accessibility.voiceAutoRead) {
+      speakText(result.text, activeLang);
     }
   };
 
@@ -198,7 +259,7 @@ export const VoiceAssistantView: React.FC = () => {
         const transcript = event.results?.[0]?.[0]?.transcript || '';
         setIsListening(false);
         if (transcript.trim()) {
-          handleSubmitText(transcript);
+          void handleSubmitText(transcript);
         }
       };
 
@@ -314,15 +375,26 @@ export const VoiceAssistantView: React.FC = () => {
         </div>
       </header>
 
-      {/* Transparent Local Rule-Based Disclosure */}
+      {/* Transparent Gemini / Offline Mode Disclosure */}
       <div className="rounded-2xl bg-[var(--surface-white)] border border-[var(--border-hairline)] px-5 py-4 flex items-start gap-3">
         <Info className="w-5 h-5 text-[var(--deep-green)] shrink-0 mt-0.5" aria-hidden="true" />
         <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-          Transparent local assistant: Saanjh uses an offline rule-based assistant connected to
-          your saved records and cleans punctuation automatically for clear voice read-aloud.
-          Smart task proposals always wait for your confirmation before saving.
+          {geminiReady === true
+            ? 'Connected to Gemini (gemini-4-hydrogen) via server-side API route, grounded strictly in your saved Saanjh records with clear speech read-aloud.'
+            : geminiReady === false
+              ? 'Server GEMINI_API_KEY is not currently set in Settings > Secrets, so Saanjh is using its transparent local rule-based fallback.'
+              : 'Checking server Gemini availability... Saanjh always answers strictly from your saved records.'}
         </p>
       </div>
+
+      {apiNotice && (
+        <div
+          role="status"
+          className="rounded-2xl bg-[#F9F1ED] border border-[#E8D5CD] px-5 py-3 text-sm text-[#9B543C]"
+        >
+          {apiNotice}
+        </div>
+      )}
 
       {/* Proposed Smart Task Confirmation Card */}
       {proposedTask && (
@@ -519,8 +591,9 @@ export const VoiceAssistantView: React.FC = () => {
                       <button
                         key={label}
                         type="button"
-                        onClick={() => handleSubmitText(label)}
-                        className="w-full text-left px-3.5 py-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-ivory)] text-sm text-[var(--text-primary)] hover:bg-[var(--secondary-sage)] transition-colors"
+                        disabled={isProcessing}
+                        onClick={() => void handleSubmitText(label)}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-ivory)] text-sm text-[var(--text-primary)] hover:bg-[var(--secondary-sage)] disabled:opacity-50 transition-colors"
                       >
                         {label}
                       </button>
@@ -529,11 +602,12 @@ export const VoiceAssistantView: React.FC = () => {
                       <button
                         key={item.label}
                         type="button"
+                        disabled={isProcessing}
                         onClick={() => {
                           setLanguage(item.lang);
-                          handleSubmitText(item.label, item.lang);
+                          void handleSubmitText(item.label, item.lang);
                         }}
-                        className="w-full text-left px-3.5 py-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-ivory)] text-sm text-[var(--text-primary)] hover:bg-[var(--secondary-sage)] transition-colors"
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-ivory)] text-sm text-[var(--text-primary)] hover:bg-[var(--secondary-sage)] disabled:opacity-50 transition-colors"
                       >
                         {item.label}
                       </button>
@@ -596,13 +670,21 @@ export const VoiceAssistantView: React.FC = () => {
                 </div>
               );
             })}
+
+            {isProcessing && (
+              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                <span>Saanjh is preparing your response...</span>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (inputText.trim()) handleSubmitText(inputText);
+              if (inputText.trim()) void handleSubmitText(inputText);
             }}
             className="p-4 border-t border-[var(--border-hairline)] flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
           >
@@ -623,10 +705,14 @@ export const VoiceAssistantView: React.FC = () => {
             />
             <button
               type="submit"
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || isProcessing}
               className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[var(--deep-green)] text-white text-sm font-medium hover:bg-[#2A493C] disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
             >
-              <Send className="w-4 h-4" aria-hidden="true" />
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="w-4 h-4" aria-hidden="true" />
+              )}
               <span>{mode === 'smart-task' ? 'Extract Task' : 'Send'}</span>
             </button>
           </form>

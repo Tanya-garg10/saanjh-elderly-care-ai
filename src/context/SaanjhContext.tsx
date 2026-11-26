@@ -68,7 +68,10 @@ interface SaanjhContextValue {
   addDocument: (doc: Omit<HealthDocument, 'id'>) => void;
   updateDocument: (id: string, updates: Partial<HealthDocument>) => void;
   deleteDocument: (id: string) => void;
-  sendAssistantMessage: (text: string, language: AssistantLanguage) => string;
+  sendAssistantMessage: (
+    text: string,
+    language: AssistantLanguage
+  ) => Promise<{ text: string; usedGemini: boolean; notice?: string }>;
   toggleDemoStep: (stepId: string) => void;
   resetDemoData: () => void;
 }
@@ -741,11 +744,14 @@ export const SaanjhProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
   };
 
-  const sendAssistantMessage = (text: string, language: AssistantLanguage): string => {
+  const sendAssistantMessage = async (
+    text: string,
+    language: AssistantLanguage
+  ): Promise<{ text: string; usedGemini: boolean; notice?: string }> => {
     const cleanText = text.trim();
-    if (!cleanText) return '';
+    if (!cleanText) return { text: '', usedGemini: false };
     const nowTime = getCurrentTimeHHMM();
-    const reply = generateRuleBasedReply(cleanText, language, state);
+    const today = getOffsetDateISO(0);
 
     const userMsg = {
       id: `msg-u-${Date.now()}`,
@@ -755,21 +761,122 @@ export const SaanjhProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       timestamp: nowTime,
     };
 
-    const assistantMsg = {
-      id: `msg-a-${Date.now() + 1}`,
-      sender: 'assistant' as const,
-      text: reply.text,
-      language,
-      timestamp: nowTime,
-      dataSources: reply.dataSources,
-    };
-
     setState((prev) => ({
       ...prev,
-      assistantMessages: [...prev.assistantMessages, userMsg, assistantMsg],
+      assistantMessages: [...prev.assistantMessages, userMsg],
     }));
 
-    return reply.text;
+    const careContext = {
+      today,
+      seniorName: state.seniorProfile.name,
+      familyContact: state.familyProfile.name,
+      activeMedicines: state.medicines
+        .filter((m) => m.active)
+        .map((m) => ({
+          name: m.name,
+          dosage: m.dosage,
+          time: m.time,
+          instructions: m.instructions,
+          confirmedToday: m.takenToday,
+        })),
+      upcomingAppointments: state.appointments
+        .filter((a) => a.status === 'upcoming' && a.date >= today)
+        .map((a) => ({
+          doctorName: a.doctorName,
+          specialty: a.specialty,
+          clinic: a.clinic,
+          date: a.date,
+          time: a.time,
+          notes: a.notes,
+        })),
+      todayRoutineActivities: state.routineActivities
+        .filter((r) => r.date === today)
+        .map((r) => ({ title: r.title, time: r.time, status: r.status, category: r.category })),
+      recentWellbeing: state.wellbeingHistory.slice(0, 5).map((w) => ({
+        date: w.date,
+        mood: w.mood,
+        note: w.note,
+      })),
+      privacyPermissions: state.privacy,
+    };
+
+    try {
+      const res = await fetch('/api/saanjh/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: cleanText,
+          language,
+          context: careContext,
+        }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        reply?: string;
+        model?: string;
+        error?: string;
+      };
+
+      if (res.ok && data.reply) {
+        const assistantMsg = {
+          id: `msg-a-${Date.now() + 1}`,
+          sender: 'assistant' as const,
+          text: data.reply,
+          language,
+          timestamp: getCurrentTimeHHMM(),
+          dataSources: [`Gemini (${data.model || 'gemini-4-hydrogen'})`, 'Your saved records'],
+        };
+
+        setState((prev) => ({
+          ...prev,
+          assistantMessages: [...prev.assistantMessages, assistantMsg],
+        }));
+
+        return { text: data.reply, usedGemini: true };
+      }
+
+      const fallback = generateRuleBasedReply(cleanText, language, state);
+      const assistantMsg = {
+        id: `msg-a-${Date.now() + 1}`,
+        sender: 'assistant' as const,
+        text: fallback.text,
+        language,
+        timestamp: getCurrentTimeHHMM(),
+        dataSources: [...fallback.dataSources, 'Offline rule-based fallback'],
+      };
+
+      setState((prev) => ({
+        ...prev,
+        assistantMessages: [...prev.assistantMessages, assistantMsg],
+      }));
+
+      return {
+        text: fallback.text,
+        usedGemini: false,
+        notice: data.error || 'Gemini API unavailable; answered using local rule-based fallback.',
+      };
+    } catch {
+      const fallback = generateRuleBasedReply(cleanText, language, state);
+      const assistantMsg = {
+        id: `msg-a-${Date.now() + 1}`,
+        sender: 'assistant' as const,
+        text: fallback.text,
+        language,
+        timestamp: getCurrentTimeHHMM(),
+        dataSources: [...fallback.dataSources, 'Offline rule-based fallback'],
+      };
+
+      setState((prev) => ({
+        ...prev,
+        assistantMessages: [...prev.assistantMessages, assistantMsg],
+      }));
+
+      return {
+        text: fallback.text,
+        usedGemini: false,
+        notice: 'Could not reach server; answered using local rule-based fallback.',
+      };
+    }
   };
 
   const toggleDemoStep = (stepId: string) => {

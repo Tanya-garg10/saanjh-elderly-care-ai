@@ -47,6 +47,8 @@ export const AppointmentsView: React.FC = () => {
   const [summaryText, setSummaryText] = useState('');
   const [approved, setApproved] = useState(false);
   const [prepSavedNotice, setPrepSavedNotice] = useState('');
+  const [isGeneratingPrep, setIsGeneratingPrep] = useState(false);
+  const [prepApiNotice, setPrepApiNotice] = useState('');
 
   const [deleteTarget, setDeleteTarget] = useState<Appointment | null>(null);
 
@@ -91,17 +93,17 @@ export const AppointmentsView: React.FC = () => {
     setNewConcern('');
     setNewQuestion('');
     setPrepSavedNotice('');
+    setPrepApiNotice('');
   };
 
-  const handleGeneratePrepSummary = () => {
-    if (!prepApt) return;
+  const buildLocalPrepSummary = (apt: Appointment) => {
     const activeMedNames = state.medicines
       .filter((m) => m.active)
       .map((m) => `${m.name} (${m.dosage.replace(/\s*·\s*/g, ', ')})`)
       .join('; ');
 
     const lines: string[] = [
-      `Visit Preparation for ${prepApt.doctorName} (${prepApt.specialty}) on ${formatDisplayDate(prepApt.date)} at ${formatTime12h(prepApt.time)}.`,
+      `Visit Preparation for ${apt.doctorName} (${apt.specialty}) on ${formatDisplayDate(apt.date)} at ${formatTime12h(apt.time)}.`,
     ];
 
     if (concerns.length > 0) {
@@ -119,9 +121,61 @@ export const AppointmentsView: React.FC = () => {
     }
 
     lines.push('Note: Prepared strictly from user notes for discussion; not a diagnosis or medical advice.');
+    return lines.join('\n\n');
+  };
 
-    setSummaryText(lines.join('\n\n'));
-    setApproved(false);
+  const handleGeneratePrepSummary = async () => {
+    if (!prepApt || isGeneratingPrep) return;
+    setIsGeneratingPrep(true);
+    setPrepApiNotice('');
+
+    const activeMedicines = state.medicines
+      .filter((m) => m.active)
+      .map((m) => `${m.name} (${m.dosage.replace(/\s*·\s*/g, ', ')})`);
+
+    try {
+      const res = await fetch('/api/saanjh/visit-prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointment: {
+            doctorName: prepApt.doctorName,
+            specialty: prepApt.specialty,
+            clinic: prepApt.clinic,
+            date: formatDisplayDate(prepApt.date),
+            time: formatTime12h(prepApt.time),
+          },
+          concerns,
+          questions,
+          activeMedicines,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        summary?: string;
+        model?: string;
+        error?: string;
+      };
+
+      if (res.ok && data.summary) {
+        setSummaryText(data.summary);
+        setApproved(false);
+        setPrepApiNotice(`Draft organized with Gemini (${data.model || 'gemini-4-hydrogen'}). Please review and approve below.`);
+      } else {
+        setSummaryText(buildLocalPrepSummary(prepApt));
+        setApproved(false);
+        setPrepApiNotice(
+          data.error
+            ? `${data.error} Generated summary using local template.`
+            : 'Generated summary using local template.'
+        );
+      }
+    } catch {
+      setSummaryText(buildLocalPrepSummary(prepApt));
+      setApproved(false);
+      setPrepApiNotice('Server unavailable; generated summary using local template.');
+    } finally {
+      setIsGeneratingPrep(false);
+    }
   };
 
   const handleSavePrep = (approveNow: boolean) => {
@@ -353,13 +407,18 @@ export const AppointmentsView: React.FC = () => {
               </label>
               <button
                 type="button"
-                onClick={handleGeneratePrepSummary}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[var(--secondary-sage)] text-[var(--deep-green)] text-xs font-medium hover:bg-[#DCE7E0]"
+                disabled={isGeneratingPrep}
+                onClick={() => void handleGeneratePrepSummary()}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[var(--secondary-sage)] text-[var(--deep-green)] text-xs font-medium hover:bg-[#DCE7E0] disabled:opacity-50"
               >
                 <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Generate Simple Summary</span>
+                <span>{isGeneratingPrep ? 'Generating...' : 'Generate Simple Summary'}</span>
               </button>
             </div>
+
+            {prepApiNotice && (
+              <p className="text-xs text-[var(--text-secondary)]">{prepApiNotice}</p>
+            )}
 
             <textarea
               id="prep-summary-textarea"
