@@ -267,7 +267,7 @@ npm run build
 
 ## ❤️ Vision
 
-> **"Care that stays close, even when family can't."**  
+> **"Care that stays close, even when family can't"**  
 > Saanjh is built to empower seniors with independence, preserve their dignity through privacy, and give families peace of mind.
 
 <p align="center">
