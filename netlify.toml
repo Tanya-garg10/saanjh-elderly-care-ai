@@ -6,12 +6,39 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# SPA Fallback for React routing
+# Explicit function redirects
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/saanjh/chat"
+  to = "/.netlify/functions/chat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/saanjh/parse-task"
+  to = "/.netlify/functions/parse-task"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/saanjh/visit-prep"
+  to = "/.netlify/functions/visit-prep"
+  status = 200
+  force = true
+
+# Catch-all for API
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+  force = true
 
+# SPA client-side fallback
 [[redirects]]
   from = "/*"
   to = "/index.html"
