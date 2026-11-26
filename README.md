@@ -1,10 +1,12 @@
+<div align="center">
+
 # 🌿 Saanjh – Voice-First AI Elderly Care & Family Coordination
 
-### Care that stays close, even when family can't.
+### *Care that stays close, even when family can't.*
 
-<p align="center">
-  <b>Empowering seniors to live independently while staying connected with the people who care.</b>
-</p>
+**Empowering seniors to live independently while staying connected with the people who care.**
+
+</div>
 
 ---
 
