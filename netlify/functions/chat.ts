@@ -1,8 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-// Fast stable model first, then fallback
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+const MODEL_NAME = 'gemini-2.5-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -62,7 +61,6 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
 - Never give medical diagnoses, clinical opinions, or treatment changes; encourage consulting her doctor for medical questions.
 - Preserve Meera's dignity and independence at all times.`;
 
-    // Compact context to make generation ultra-fast
     const compactContext = {
       senior: context?.seniorName || 'Meera Sharma',
       medicines: context?.activeMedicines?.slice(0, 5),
@@ -70,44 +68,20 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
       recentWellbeing: context?.recentWellbeing?.slice(0, 2),
     };
 
-    let replyText = '';
-    let usedModel = '';
-    let lastError: unknown = null;
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: `Care Context JSON:\n${JSON.stringify(compactContext)}\n\nUser Question: ${message.trim()}`,
+      config: {
+        systemInstruction,
+      },
+    });
 
-    for (const model of CANDIDATE_MODELS) {
-      try {
-        const responsePromise = ai.models.generateContent({
-          model,
-          contents: `Care Context JSON:\n${JSON.stringify(compactContext)}\n\nUser Question: ${message.trim()}`,
-          config: {
-            systemInstruction,
-          },
-        });
-
-        // Timeout each model attempt at 4.5 seconds to prevent Netlify 10s 504 Gateway Timeout
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Model timeout')), 4500)
-        );
-
-        const response = await Promise.race([responsePromise, timeoutPromise]);
-        const text = response.text?.trim();
-        if (text) {
-          replyText = text;
-          usedModel = model;
-          break;
-        }
-      } catch (err: unknown) {
-        lastError = err;
-        console.warn(`Model ${model} failed or timed out:`, err);
-      }
-    }
-
+    const replyText = response.text?.trim();
     if (!replyText) {
-      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
       return {
-        statusCode: 503,
+        statusCode: 502,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: errorMsg || 'Gemini models timed out.' }),
+        body: JSON.stringify({ error: 'Gemini returned an empty response.' }),
       };
     }
 
@@ -116,7 +90,7 @@ Keep responses concise (2 to 4 short sentences) and easy to listen to when read 
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify({
         reply: replyText,
-        model: usedModel,
+        model: MODEL_NAME,
       }),
     };
   } catch (err: unknown) {

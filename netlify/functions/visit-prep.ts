@@ -1,7 +1,7 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import type { Handler } from '@netlify/functions';
 
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash'];
+const MODEL_NAME = 'gemini-2.5-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -51,50 +51,32 @@ Rules:
 - STRICTLY DO NOT generate any medical diagnosis, possible causes, or treatment/dosage recommendations.
 - Clearly frame everything as the user's own topics to discuss with their doctor.`;
 
-    let summaryText = '';
-    let usedModel = '';
-    let lastError: unknown = null;
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: JSON.stringify({
+        appointment,
+        userConcerns: Array.isArray(concerns) ? concerns : [],
+        userQuestions: Array.isArray(questions) ? questions : [],
+        activeMedicines: Array.isArray(activeMedicines) ? activeMedicines : [],
+      }),
+      config: {
+        systemInstruction,
+      },
+    });
 
-    for (const model of CANDIDATE_MODELS) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: JSON.stringify({
-            appointment,
-            userConcerns: Array.isArray(concerns) ? concerns : [],
-            userQuestions: Array.isArray(questions) ? questions : [],
-            activeMedicines: Array.isArray(activeMedicines) ? activeMedicines : [],
-          }),
-          config: {
-            systemInstruction,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          },
-        });
-        const text = response.text?.trim();
-        if (text) {
-          summaryText = text;
-          usedModel = model;
-          break;
-        }
-      } catch (err: unknown) {
-        lastError = err;
-        console.warn(`Model ${model} failed in visit-prep, trying next:`, err);
-      }
-    }
-
-    if (!summaryText) {
-      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+    const summary = response.text?.trim();
+    if (!summary) {
       return {
-        statusCode: 503,
+        statusCode: 502,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: errorMsg || 'All models temporarily unavailable.' }),
+        body: JSON.stringify({ error: 'Gemini returned an empty summary.' }),
       };
     }
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ summary: summaryText, model: usedModel }),
+      body: JSON.stringify({ summary, model: MODEL_NAME }),
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
